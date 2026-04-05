@@ -19,8 +19,10 @@ Mastra handlers receive a real Mastra `RequestContext`. The adapter injects a
 LoopBack bridge into that context under the `loopback` key.
 
 ```ts
-const loopback = requestContext.get('loopback');
-const customerRepository = await loopback.resolve('repositories.CustomerRepository');
+const loopback = requestContext.get("loopback");
+const customerRepository = await loopback.resolve(
+  "repositories.CustomerRepository",
+);
 const customer = await customerRepository.findById(customerId);
 ```
 
@@ -45,16 +47,18 @@ LoopBack route entries, preserving `requestContext` and LoopBack DI.
 ```ts
 mastra.setServer({
   apiRoutes: [
-    registerApiRoute('/customer/:id', {
-      method: 'GET',
-      handler: async c => {
-        const requestContext = c.get('requestContext');
-        const loopback = requestContext.get('loopback');
-        const customerService = await loopback.resolve('services.CustomerService');
-        return c.json(customerService.findById(c.req.param('id')));
+    registerApiRoute("/customer/:id", {
+      method: "GET",
+      handler: async (c) => {
+        const requestContext = c.get("requestContext");
+        const loopback = requestContext.get("loopback");
+        const customerService = await loopback.resolve(
+          "services.CustomerService",
+        );
+        return c.json(customerService.findById(c.req.param("id")));
       },
       openapi: {
-        summary: 'Get customer by id',
+        summary: "Get customer by id",
       },
     }),
   ],
@@ -69,9 +73,9 @@ paths should include the adapter prefix.
 ```ts
 mastra.setServer({
   auth: {
-    protected: ['/api/mastra/secure/*', '/api/mastra/customer/*'],
-    authenticateToken: async token => {
-      if (token === 'valid-token') return {id: 'user-1'};
+    protected: ["/api/mastra/secure/*", "/api/mastra/customer/*"],
+    authenticateToken: async (token) => {
+      if (token === "valid-token") return { id: "user-1" };
       return null;
     },
   },
@@ -85,17 +89,17 @@ const adapter = new LoopbackMastraServer({
   app,
   mastra,
   config: {
-    prefix: '/api/mastra',
+    prefix: "/api/mastra",
     auth: {
-      authorizeMode: 'after',
-      authorize: async input => {
-        return input.getHeader('x-tenant-id')
+      authorizeMode: "after",
+      authorize: async (input) => {
+        return input.getHeader("x-tenant-id")
           ? null
-          : {status: 403, error: 'Tenant header required'};
+          : { status: 403, error: "Tenant header required" };
       },
-      resolveContextMode: 'replace',
-      resolveContext: async input => ({
-        userId: input.headers['x-user-id'] as string | undefined,
+      resolveContextMode: "replace",
+      resolveContext: async (input) => ({
+        userId: input.headers["x-user-id"] as string | undefined,
       }),
     },
   },
@@ -103,6 +107,7 @@ const adapter = new LoopbackMastraServer({
 ```
 
 Supported composition modes:
+
 - `authorizeMode`: `before`, `after`, `replace`
 - `resolveContextMode`: `before`, `after`, `replace`
 
@@ -110,11 +115,6 @@ Supported composition modes:
 
 The adapter supports Mastra's OpenAPI route generation under the configured
 prefix. Custom routes are included when they define `openapi` metadata.
-
-## Upstream PR
-
-Upstream porting notes and the current readiness checklist are in
-`docs/upstream-pr-plan.md`.
 
 ## Development
 
