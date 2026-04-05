@@ -1,0 +1,26 @@
+{
+  "name": "basic-loopback-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix ../.. run build",
+    "dev": "npm --prefix ../.. run build && tsx src/index.ts",
+    "dev:agent-example": "npm --prefix ../.. run build && tsx src/repository-tool-agent-route-example.ts",
+    "dev:sourcefuse-auth-example": "npm --prefix ../.. run build && tsx src/sourcefuse-auth-jwt-example.ts"
+  },
+  "dependencies": {
+    "@loopback/core": "^7.0.10",
+    "@loopback/repository": "^8.0.10",
+    "@loopback/rest": "^15.0.11",
+    "jsonwebtoken": "^9.0.3",
+    "loopback4-authentication": "^13.0.4",
+    "loopback4-authorization": "^8.1.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.5.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

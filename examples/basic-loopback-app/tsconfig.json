@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "@mastra/core": ["../../node_modules/@mastra/core"],
+      "@mastra/core/*": ["../../node_modules/@mastra/core/*"],
+      "@mastra/server": ["../../node_modules/@mastra/server"],
+      "@mastra/server/*": ["../../node_modules/@mastra/server/*"]
+    },
+    "ignoreDeprecations": "6.0",
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"]
+}
