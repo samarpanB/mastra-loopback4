@@ -1,8 +1,8 @@
-import type {HttpLoggingConfig} from '@mastra/core/server';
 import type {Request, Response} from '@loopback/rest';
+import type {HttpLoggingConfig} from '@mastra/core/server';
 
-import type {RequestLogPayload} from './types.js';
 import {toHeaderRecord} from './request-utils.js';
+import type {RequestLogPayload} from './types.js';
 
 export function logLoopbackRequest(input: {
   req: Request;
@@ -32,15 +32,28 @@ export function logLoopbackRequest(input: {
 
   const level = config.level ?? 'info';
   const logger: ((message?: unknown, ...optionalParams: unknown[]) => void) | undefined =
-    level === 'debug' ? console.debug : level === 'warn' ? console.warn : console.info;
+    level === 'warn' ? console.warn : console.info;
   logger?.('Mastra request', payload);
 }
+
+const DEFAULT_REDACT_HEADERS = [
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+];
 
 function redactHeaders(
   headers: Record<string, string | string[] | undefined>,
   config: HttpLoggingConfig,
 ): Record<string, string | string[] | undefined> {
-  const redacted = new Set((config.redactHeaders ?? []).map(header => header.toLowerCase()));
+  const redacted = new Set(
+    [...DEFAULT_REDACT_HEADERS, ...(config.redactHeaders ?? [])].map(header =>
+      header.toLowerCase(),
+    ),
+  );
   return Object.fromEntries(
     Object.entries(headers).map(([key, value]) => {
       if (redacted.has(key.toLowerCase())) {

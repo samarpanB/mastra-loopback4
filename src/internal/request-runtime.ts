@@ -1,6 +1,12 @@
-import {RequestContext} from '@mastra/core/request-context';
 import type {Request} from '@loopback/rest';
+import type {RequestContext} from '@mastra/core/request-context';
 
+import type {
+  LoopbackAuthResolverInput,
+  LoopbackAuthorizationDenial,
+  LoopbackMastraConfig,
+  MastraAuthContext,
+} from '../types.js';
 import {
   extractAuthContext as defaultExtractAuthContext,
   getHeaderValueOptional,
@@ -9,13 +15,6 @@ import {
   toWebRequest,
 } from './request-utils.js';
 import type {AuthError, RegisteredMastraRoute} from './types.js';
-import type {
-  LoopbackAuthResolverInput,
-  LoopbackAuthorizeInput,
-  LoopbackAuthorizationResult,
-  LoopbackMastraConfig,
-  MastraAuthContext,
-} from '../types.js';
 
 export interface LoopbackRequestRuntimeHooks {
   config: LoopbackMastraConfig;
@@ -213,7 +212,7 @@ export class LoopbackRequestRuntime {
 }
 
 export function toAuthError(
-  result: LoopbackAuthorizationResult | null | undefined,
+  result: LoopbackAuthorizationDenial | null | undefined,
 ): AuthError | null {
   return result ?? null;
 }

@@ -1,6 +1,6 @@
+import type {OperationObject, Request, Response} from '@loopback/rest';
 import type {ApiRoute} from '@mastra/core/server';
 import type {ServerRoute} from '@mastra/server/server-adapter';
-import type {OperationObject, Request, Response} from '@loopback/rest';
 
 export type RegisteredMastraRoute = ServerRoute & {
   handler?: (params: unknown) => unknown | Promise<unknown>;

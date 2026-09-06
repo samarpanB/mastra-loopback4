@@ -1,6 +1,6 @@
-import {RequestContext} from '@mastra/core/request-context';
 import type {Context} from '@loopback/core';
 import type {Request, Response, RestApplication} from '@loopback/rest';
+import {RequestContext} from '@mastra/core/request-context';
 
 import {MastraLoopbackBindings} from '../bindings.js';
 import type {LoopbackMastraBridge, MastraAuthContext} from '../types.js';
@@ -23,7 +23,12 @@ export function createMastraRequestContext(input: {
     paramsRequestContext: extractRequestContext(input.queryParams),
     bodyRequestContext: extractRequestContext(input.body),
   });
-  const bridge = createLoopbackBridge(input.app, input.loopbackContext, input.request, input.response);
+  const bridge = createLoopbackBridge(
+    input.app,
+    input.loopbackContext,
+    input.request,
+    input.response,
+  );
   requestContext.set('loopback', bridge);
   return requestContext;
 }
@@ -47,7 +52,9 @@ export function bindRequestContextValues(input: {
     value: input.mastraRequestContext,
     bridge,
   });
-  input.requestContext.bind(MastraLoopbackBindings.REQUEST_CONTEXT_VALUE).to(input.mastraRequestContext);
+  input.requestContext
+    .bind(MastraLoopbackBindings.REQUEST_CONTEXT_VALUE)
+    .to(input.mastraRequestContext);
   input.requestContext.bind(MastraLoopbackBindings.AUTH_CONTEXT).to(input.authContext);
   input.requestContext.bind(MastraLoopbackBindings.ABORT_SIGNAL).to(input.abortSignal);
   input.requestContext.bind(MastraLoopbackBindings.BRIDGE).to(bridge);
@@ -70,7 +77,7 @@ export function extractAuthContext(requestContext: unknown): MastraAuthContext |
 
   const auth = candidate as Record<string, unknown>;
   const scopes = Array.isArray(auth.scopes)
-    ? auth.scopes.filter(scope => typeof scope === 'string')
+    ? auth.scopes.filter((scope): scope is string => typeof scope === 'string')
     : undefined;
 
   return {
@@ -104,7 +111,9 @@ export function createLoopbackBridge(
   };
 }
 
-export function getLoopbackBridge(requestContext: RequestContext): LoopbackMastraBridge | undefined {
+export function getLoopbackBridge(
+  requestContext: RequestContext,
+): LoopbackMastraBridge | undefined {
   const bridge = requestContext.get('loopback');
   if (!bridge || typeof bridge !== 'object') {
     return undefined;
@@ -113,20 +122,24 @@ export function getLoopbackBridge(requestContext: RequestContext): LoopbackMastr
 }
 
 export function normalizeUrlParams(params: Request['params']): Record<string, string> {
-  const entries = Object.entries((params ?? {}) as Record<string, unknown>).flatMap(([key, value]) => {
-    if (typeof value === 'string') {
-      return [[key, value] as const];
-    }
-    if (value === undefined || value === null) {
-      return [];
-    }
-    return [[key, String(value)] as const];
-  });
+  const entries = Object.entries((params ?? {}) as Record<string, unknown>).flatMap(
+    ([key, value]) => {
+      if (typeof value === 'string') {
+        return [[key, value] as const];
+      }
+      if (value === undefined || value === null) {
+        return [];
+      }
+      return [[key, String(value)] as const];
+    },
+  );
 
   return Object.fromEntries(entries);
 }
 
-export function toHeaderRecord(headers: Request['headers']): Record<string, string | string[] | undefined> {
+export function toHeaderRecord(
+  headers: Request['headers'],
+): Record<string, string | string[] | undefined> {
   return headers as Record<string, string | string[] | undefined>;
 }
 
@@ -139,7 +152,7 @@ export function getHeaderValueOptional(req: Request, key: string): string | unde
   const normalizedKey = key.toLowerCase();
   const value = req.headers[normalizedKey];
   if (Array.isArray(value)) {
-    return value.length > 0 ? value[0] ?? undefined : undefined;
+    return value.length > 0 ? (value[0] ?? undefined) : undefined;
   }
   if (typeof value === 'string') {
     return value;
@@ -210,16 +223,18 @@ export function toWebRequest(req: Request): globalThis.Request {
   const method = req.method.toUpperCase();
   const init: RequestInit = {method, headers};
   if (method !== 'GET' && method !== 'HEAD' && req.body !== undefined) {
-    init.body = toRequestBody(req.body);
-    if (
+    const willJsonStringify =
       typeof req.body === 'object' &&
       req.body !== null &&
-      !headers.has('content-type') &&
       !Buffer.isBuffer(req.body) &&
-      !(req.body instanceof Uint8Array)
-    ) {
+      !(req.body instanceof Uint8Array) &&
+      !(req.body instanceof URLSearchParams) &&
+      !(req.body instanceof Blob) &&
+      !(req.body instanceof FormData);
+    if (willJsonStringify) {
       headers.set('content-type', 'application/json');
     }
+    init.body = toRequestBody(req.body);
   }
 
   return new Request(url, init);

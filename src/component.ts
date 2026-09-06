@@ -1,6 +1,7 @@
-import {Binding, BindingScope, createBindingFromClass, type Component} from '@loopback/core';
+import {BindingScope, createBindingFromClass} from '@loopback/core';
+import type {Binding, Component} from '@loopback/core';
 
-import {MastraLoopbackBindings, MastraLoopbackProviderBindings} from './bindings.js';
+import {MastraLoopbackProviderBindings} from './bindings.js';
 import {
   CurrentLoopbackMastraAbortSignalProvider,
   CurrentLoopbackMastraAuthContextProvider,

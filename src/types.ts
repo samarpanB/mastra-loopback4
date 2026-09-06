@@ -1,8 +1,11 @@
 import type {BindingAddress, Context} from '@loopback/core';
-import type {RequestContext} from '@mastra/core/request-context';
 import type {Request, Response, RestApplication} from '@loopback/rest';
+import type {RequestContext} from '@mastra/core/request-context';
 
-export interface LoopbackAuthorizationResult {
+/**
+ * Denial payload returned by custom authorizers. Return `null` or `undefined` to allow the request.
+ */
+export interface LoopbackAuthorizationDenial {
   status: number;
   error: string;
 }
@@ -30,10 +33,10 @@ export interface LoopbackAuthConfig {
   authorize?: (
     input: LoopbackAuthorizeInput,
   ) =>
-    | LoopbackAuthorizationResult
+    | LoopbackAuthorizationDenial
     | null
     | undefined
-    | Promise<LoopbackAuthorizationResult | null | undefined>;
+    | Promise<LoopbackAuthorizationDenial | null | undefined>;
 
   /**
    * Controls how custom authorization composes with Mastra's built-in route auth.
@@ -79,6 +82,8 @@ export interface LoopbackMastraConfig {
   /**
    * Enables adapter-managed auth hooks. If false, host app auth remains authoritative.
    * Prefer `auth.enabled` for new integrations.
+   *
+   * @deprecated Use `auth.enabled` instead.
    */
   enableAuth?: boolean;
 
@@ -86,6 +91,8 @@ export interface LoopbackMastraConfig {
    * Optional custom auth resolver invoked per request after route auth checks.
    * Useful for mapping framework/user/session models into adapter auth context.
    * Prefer `auth.resolveContext` for new integrations.
+   *
+   * @deprecated Use `auth.resolveContext` instead.
    */
   authResolver?: (
     input: LoopbackAuthResolverInput,

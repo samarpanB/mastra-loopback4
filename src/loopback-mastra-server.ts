@@ -1,14 +1,10 @@
-import type {Mastra} from '@mastra/core';
-import {RequestContext} from '@mastra/core/request-context';
-import type {ApiRoute} from '@mastra/core/server';
-import {
-  MastraServer,
-  normalizeQueryParams,
-  type ParsedRequestParams,
-  type ServerRoute,
-} from '@mastra/server/server-adapter';
 import {BindingScope} from '@loopback/core';
 import type {Request, Response, RestApplication} from '@loopback/rest';
+import type {Mastra} from '@mastra/core';
+import type {RequestContext} from '@mastra/core/request-context';
+import type {ApiRoute} from '@mastra/core/server';
+import {MastraServer, normalizeQueryParams} from '@mastra/server/server-adapter';
+import type {ParsedRequestParams, ServerRoute} from '@mastra/server/server-adapter';
 
 import {MastraLoopbackBindings, MastraLoopbackProviderBindings} from './bindings.js';
 import {MastraLoopbackComponent} from './component.js';
@@ -20,11 +16,8 @@ import {
   toLoopbackMethods,
   toLoopbackPath,
 } from './internal/path-utils.js';
-import {
-  createLoopbackRouteEntry,
-  type LoopbackRouteInvocationContext,
-} from './internal/route-entry-factory.js';
-import {LoopbackResponseWriter} from './internal/response-writer.js';
+import {LoopbackRequestRuntime} from './internal/request-runtime.js';
+import type {LoopbackRequestRuntimeHooks} from './internal/request-runtime.js';
 import {
   bindRequestContextValues,
   buildCustomRouteUrl,
@@ -32,16 +25,11 @@ import {
   normalizeUrlParams,
   toHeaderRecord,
 } from './internal/request-utils.js';
-import {
-  LoopbackRequestRuntime,
-  type LoopbackRequestRuntimeHooks,
-} from './internal/request-runtime.js';
+import {LoopbackResponseWriter} from './internal/response-writer.js';
+import {createLoopbackRouteEntry} from './internal/route-entry-factory.js';
+import type {LoopbackRouteInvocationContext} from './internal/route-entry-factory.js';
 import type {RegisteredMastraRoute} from './internal/types.js';
-import type {
-  LoopbackAuthResolverInput,
-  LoopbackMastraConfig,
-  MastraAuthContext,
-} from './types.js';
+import type {LoopbackAuthResolverInput, LoopbackMastraConfig, MastraAuthContext} from './types.js';
 
 export interface LoopbackMastraServerOptions {
   app: RestApplication;
@@ -71,22 +59,21 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
       mcpOptions: config.mcp,
     } as never);
     this.config = config;
-    this.responseWriter = new LoopbackResponseWriter({
-      prefix: this.config.prefix,
-      applyStreamRedaction: chunk => this.runtime.redactStreamChunk(chunk),
-    });
     this.runtime = new LoopbackRequestRuntime({
       config: this.config,
       parseQueryParamsHook: (route, queryParams) =>
         this.invokeParseQueryParamsHook(route, queryParams),
       parseBodyHook: (route, body) => this.invokeParseBodyHook(route, body),
-      parsePathParamsHook: (route, pathParams) =>
-        this.invokeParsePathParamsHook(route, pathParams),
+      parsePathParamsHook: (route, pathParams) => this.invokeParsePathParamsHook(route, pathParams),
       checkRouteAuthHook: (route, input) => this.invokeCheckRouteAuthHook(route, input),
       legacyAuthResolver: input => this.getConfiguredAuthResolver()?.(input),
       resolveTools: () => this.resolveToolsForRoute(),
       resolveTaskStore: () => this.resolveTaskStore(),
       redactStreamChunkHook: chunk => this.invokeRedactStreamChunkHook(chunk),
+    });
+    this.responseWriter = new LoopbackResponseWriter({
+      prefix: this.config.prefix,
+      applyStreamRedaction: chunk => this.runtime.redactStreamChunk(chunk),
     });
 
     this.ensureSupportBindingsRegistered(options.app);
@@ -155,7 +142,8 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
         verb: mastraRoute.method,
         path: fullPath,
         spec: operationSpec,
-        handle: lifecycle => this.handleRegisteredRouteInvocation(lifecycle, mastraRoute, routeHandler),
+        handle: lifecycle =>
+          this.handleRegisteredRouteInvocation(lifecycle, mastraRoute, routeHandler),
       }),
     );
   }
@@ -197,9 +185,16 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
     try {
       const params = await this.getParams(route, req);
       const queryParams = await this.runtime.parseQueryParams(route, params.queryParams);
-      const body = await this.runtime.parseBody(route, params.body);
       if (params.bodyParseError) {
         res.status(400).json({error: params.bodyParseError.message});
+        return res;
+      }
+      let body: unknown;
+      try {
+        body = await this.runtime.parseBody(route, params.body);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid request body';
+        res.status(400).json({error: message});
         return res;
       }
       const pathParams = await this.runtime.parsePathParams(route, params.urlParams);
@@ -363,7 +358,9 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
     }
   }
 
-  private resolveRouteHandler(route: RegisteredMastraRoute): (params: unknown) => unknown | Promise<unknown> {
+  private resolveRouteHandler(
+    route: RegisteredMastraRoute,
+  ): (params: unknown) => unknown | Promise<unknown> {
     if (typeof route.handler !== 'function') {
       throw new Error(`Route handler is not configured for ${route.method} ${route.path}`);
     }
@@ -448,10 +445,7 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
       : queryParams;
   }
 
-  private async invokeParseBodyHook(
-    route: RegisteredMastraRoute,
-    body: unknown,
-  ): Promise<unknown> {
+  private async invokeParseBodyHook(route: RegisteredMastraRoute, body: unknown): Promise<unknown> {
     const parseBody = (
       this as unknown as {
         parseBody?: (route: RegisteredMastraRoute, body: unknown) => Promise<unknown>;
