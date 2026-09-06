@@ -1,10 +1,10 @@
-import {Context} from '@loopback/core';
 import {Mastra} from '@mastra/core';
 import {registerApiRoute} from '@mastra/core/server';
 import {describe, expect, it, vi} from 'vitest';
 
 import {MastraLoopbackProviderBindings} from '../../bindings.js';
 import {LoopbackMastraServer} from '../../loopback-mastra-server.js';
+import type {FakeRequest} from '../support/fakes.js';
 import {
   FakeResponse,
   createAppWithCapture,
@@ -50,7 +50,9 @@ describe('LoopbackMastraServer integration', () => {
           const loopback = requestContext.get('loopback') as {
             resolve: <T = unknown>(binding: unknown) => Promise<T>;
           };
-          const customerService = await loopback.resolve<CustomerService>('services.CustomerService');
+          const customerService = await loopback.resolve<CustomerService>(
+            'services.CustomerService',
+          );
           const providerRequestContext = await loopback.resolve<{
             get: (key: string) => unknown;
           }>(MastraLoopbackProviderBindings.REQUEST_CONTEXT);
@@ -74,7 +76,8 @@ describe('LoopbackMastraServer integration', () => {
 
     const request = createFakeRequest({
       path: '/api/mastra/customers/42',
-      originalUrl: '/api/mastra/customers/42?requestContext=%7B%22tenantId%22%3A%22tenant-acme%22%7D',
+      originalUrl:
+        '/api/mastra/customers/42?requestContext=%7B%22tenantId%22%3A%22tenant-acme%22%7D',
       url: '/api/mastra/customers/42?requestContext=%7B%22tenantId%22%3A%22tenant-acme%22%7D',
       params: {id: '42'},
       query: {
@@ -257,8 +260,8 @@ describe('LoopbackMastraServer integration', () => {
       mastra,
       config: {prefix: '/api/mastra', enableAuth: false},
     });
-    const startHTTP = vi.fn(async () => undefined);
-    const startSSE = vi.fn(async () => undefined);
+    const startHTTP = vi.fn(async (_args: {httpPath: string}) => undefined);
+    const startSSE = vi.fn(async (_args: {ssePath: string; messagePath: string}) => undefined);
 
     await adapter.registerRoute(
       app,
@@ -344,11 +347,7 @@ describe('LoopbackMastraServer integration', () => {
         method: 'GET',
         path: '/abortable',
         responseType: 'json',
-        handler: async ({
-          abortSignal,
-        }: {
-          abortSignal: AbortSignal;
-        }) => {
+        handler: async ({abortSignal}: {abortSignal: AbortSignal}) => {
           markReady?.();
           await new Promise<void>(resolve => {
             abortSignal.addEventListener('abort', () => resolve(), {once: true});
@@ -368,16 +367,64 @@ describe('LoopbackMastraServer integration', () => {
       url: '/api/mastra/abortable',
     });
     const response = new FakeResponse();
-    const requestContext = new Context(app);
-    requestContext.bind('rest.http.request').to(request as never);
-    requestContext.bind('rest.http.response').to(response as never);
-
-    const invokePromise = entry!.invokeHandler(requestContext as never, []);
+    const invokePromise = invokeRoute(app, entry!, request, response);
     await ready;
     request.emit('aborted');
     await invokePromise;
 
     expect(response.jsonBody).toEqual({aborted: true});
+  });
+
+  it('does not abort in-flight handlers for normal close events after completion flags are set', async () => {
+    const mastra = new Mastra();
+    const {app, routes} = createAppWithCapture();
+    const adapter = new LoopbackMastraServer({
+      app,
+      mastra,
+      config: {prefix: '/api/mastra', enableAuth: false},
+    });
+
+    await adapter.registerRoute(
+      app,
+      {
+        method: 'GET',
+        path: '/normal-close',
+        responseType: 'json',
+        handler: async ({
+          abortSignal,
+          request,
+          response,
+        }: {
+          abortSignal: AbortSignal;
+          request: FakeRequest;
+          response: FakeResponse;
+        }) => {
+          request.readableEnded = true;
+          response.writableFinished = true;
+          request.emit('close');
+          response.emit('close');
+          return {aborted: abortSignal.aborted};
+        },
+      } as never,
+      {prefix: '/api/mastra'},
+    );
+
+    const entry = routes.find(route => route.path === '/api/mastra/normal-close');
+    expect(entry).toBeDefined();
+
+    const response = new FakeResponse();
+    await invokeRoute(
+      app,
+      entry!,
+      createFakeRequest({
+        path: '/api/mastra/normal-close',
+        originalUrl: '/api/mastra/normal-close',
+        url: '/api/mastra/normal-close',
+      }),
+      response,
+    );
+
+    expect(response.jsonBody).toEqual({aborted: false});
   });
 
   it('logs requests with Mastra build.apiReqLogs config', async () => {
@@ -389,7 +436,6 @@ describe('LoopbackMastraServer integration', () => {
           level: 'info',
           includeHeaders: true,
           includeQueryParams: true,
-          redactHeaders: ['authorization'],
         },
       },
     });
@@ -424,6 +470,8 @@ describe('LoopbackMastraServer integration', () => {
       url: '/api/mastra/ping?foo=bar',
       headers: {
         authorization: 'Bearer secret-token',
+        cookie: 'session=secret',
+        'x-api-key': 'api-secret',
         'x-request-id': 'req-1',
       },
       query: {
@@ -445,6 +493,8 @@ describe('LoopbackMastraServer integration', () => {
       query: {foo: 'bar'},
       headers: {
         authorization: '[REDACTED]',
+        cookie: '[REDACTED]',
+        'x-api-key': '[REDACTED]',
         'x-request-id': 'req-1',
       },
     });
@@ -579,9 +629,9 @@ describe('LoopbackMastraServer integration', () => {
       authorizedCustomResponse,
     );
     expect(authorizedCustomResponse.statusCode).toBe(200);
-    expect(Buffer.from(authorizedCustomResponse.writes[0] as Uint8Array).toString('utf8')).toContain(
-      '{"customerId":"55","userId":"user-1"}',
-    );
+    expect(
+      Buffer.from(authorizedCustomResponse.writes[0] as Uint8Array).toString('utf8'),
+    ).toContain('{"customerId":"55","userId":"user-1"}');
   });
 
   it('allows consumers to replace the built-in auth strategy and resolve custom auth context', async () => {
@@ -614,11 +664,7 @@ describe('LoopbackMastraServer integration', () => {
         method: 'GET',
         path: '/custom-auth',
         responseType: 'json',
-        handler: async ({
-          requestContext,
-        }: {
-          requestContext: {get: (key: string) => unknown};
-        }) => ({
+        handler: async ({requestContext}: {requestContext: {get: (key: string) => unknown}}) => ({
           auth: requestContext.get('auth'),
         }),
       } as never,
@@ -703,11 +749,7 @@ describe('LoopbackMastraServer integration', () => {
         method: 'GET',
         path: '/composed/resource',
         responseType: 'json',
-        handler: async ({
-          requestContext,
-        }: {
-          requestContext: {get: (key: string) => unknown};
-        }) => ({
+        handler: async ({requestContext}: {requestContext: {get: (key: string) => unknown}}) => ({
           user: requestContext.get('user'),
         }),
       } as never,
