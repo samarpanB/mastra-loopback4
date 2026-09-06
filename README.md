@@ -116,6 +116,17 @@ Supported composition modes:
 The adapter supports Mastra's OpenAPI route generation under the configured
 prefix. Custom routes are included when they define `openapi` metadata.
 
+## Compatibility
+
+| Adapter version | Mastra (`@mastra/core`, `@mastra/server`) | LoopBack (`@loopback/rest`) |
+| --------------- | ----------------------------------------- | --------------------------- |
+| 0.2.x           | `^1.64.0`                                 | `^15.0.11`                  |
+| 0.1.x           | `^1.20.0` to `^1.22.0`                    | `^15.0.10`                  |
+
+The 0.2 line tracks the `MastraServer` base class as shipped in Mastra 1.64,
+which registers schema-aware custom routes natively and pipes custom route
+responses with `stream.pipeline`. Older Mastra releases need the 0.1 line.
+
 ## Development
 
 ```bash

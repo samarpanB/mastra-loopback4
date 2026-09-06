@@ -1,6 +1,6 @@
 {
   "name": "@mastra/loopback",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "LoopBack 4 server adapter for Mastra",
   "license": "MIT",
   "repository": {
@@ -36,7 +36,7 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "npm run clean && tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run src/__tests__/unit",
@@ -46,15 +46,16 @@
   "peerDependencies": {
     "@loopback/core": "^7.0.10",
     "@loopback/rest": "^15.0.11",
-    "@mastra/core": "^1.22.0",
-    "@mastra/server": "^1.22.0"
+    "@mastra/core": "^1.64.0",
+    "@mastra/server": "^1.64.0"
   },
   "devDependencies": {
     "@loopback/core": "^7.0.10",
     "@loopback/rest": "^15.0.11",
-    "@mastra/core": "^1.22.0",
-    "@mastra/server": "^1.22.0",
+    "@mastra/core": "^1.64.0",
+    "@mastra/server": "^1.64.0",
     "@types/node": "^25.5.2",
+    "hono": "^4.12.8",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   },
