@@ -1,5 +1,6 @@
 import {Mastra} from '@mastra/core';
 import {registerApiRoute} from '@mastra/core/server';
+import type {Context} from 'hono';
 import {describe, expect, it, vi} from 'vitest';
 
 import {MastraLoopbackProviderBindings} from '../../bindings.js';
@@ -102,14 +103,14 @@ describe('LoopbackMastraServer integration', () => {
       apiRoutes: [
         registerApiRoute('/customer/:id', {
           method: 'GET',
-          handler: async c => {
+          handler: async (c: Context) => {
             const requestContext = c.get('requestContext');
             const loopback = requestContext.get('loopback') as {
               resolve: (binding: string) => Promise<CustomerService>;
             };
             const customerService = await loopback.resolve('services.CustomerService');
             return c.json({
-              customer: customerService.findById(c.req.param('id')),
+              customer: customerService.findById(c.req.param('id') ?? ''),
               hasLoopbackBridge: requestContext.has('loopback'),
             });
           },
@@ -400,7 +401,7 @@ describe('LoopbackMastraServer integration', () => {
           response: FakeResponse;
         }) => {
           request.readableEnded = true;
-          response.writableFinished = true;
+          await new Promise<void>(resolve => response.end(resolve));
           request.emit('close');
           response.emit('close');
           return {aborted: abortSignal.aborted};
@@ -515,7 +516,7 @@ describe('LoopbackMastraServer integration', () => {
       apiRoutes: [
         registerApiRoute('/customer/:id', {
           method: 'GET',
-          handler: async c => {
+          handler: async (c: Context) => {
             const requestContext = c.get('requestContext');
             const user = requestContext.get('user') as {id: string};
             return c.json({
@@ -803,7 +804,7 @@ describe('LoopbackMastraServer integration', () => {
       apiRoutes: [
         registerApiRoute('/customer/:id', {
           method: 'GET',
-          handler: async c => c.json({id: c.req.param('id')}),
+          handler: async (c: Context) => c.json({id: c.req.param('id')}),
           openapi: {
             summary: 'Get a customer by id',
           },

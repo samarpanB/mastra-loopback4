@@ -1,4 +1,5 @@
 import {EventEmitter} from 'node:events';
+import {Writable} from 'node:stream';
 
 import {Context} from '@loopback/core';
 import {RestBindings, RestApplication} from '@loopback/rest';
@@ -22,16 +23,30 @@ export class FakeRequest extends EventEmitter {
   }
 }
 
-export class FakeResponse extends EventEmitter {
+export class FakeResponse extends Writable {
   statusCode = 200;
   readonly headers = new Map<string, string | string[]>();
   readonly writes: Array<string | Buffer | Uint8Array> = [];
   jsonBody: unknown;
   sendBody: unknown;
-  ended = false;
   flushed = false;
-  writableEnded = false;
-  writableFinished = false;
+
+  constructor() {
+    super({decodeStrings: false});
+  }
+
+  get ended(): boolean {
+    return this.writableEnded;
+  }
+
+  _write(
+    chunk: string | Buffer | Uint8Array,
+    _encoding: BufferEncoding,
+    callback: (error?: Error | null) => void,
+  ): void {
+    this.writes.push(chunk);
+    callback();
+  }
 
   status(code: number): this {
     this.statusCode = code;
@@ -47,38 +62,28 @@ export class FakeResponse extends EventEmitter {
     return this.headers.get(key.toLowerCase());
   }
 
+  writeHead(status: number, headers: Record<string, string | string[]> = {}): this {
+    this.statusCode = status;
+    for (const [key, value] of Object.entries(headers)) {
+      this.setHeader(key, value);
+    }
+    return this;
+  }
+
   json(value: unknown): this {
     this.jsonBody = value;
     this.setHeader('content-type', 'application/json');
-    this.ended = true;
-    this.writableEnded = true;
-    this.writableFinished = true;
-    this.emit('finish');
+    if (!this.writableEnded) {
+      this.end();
+    }
     return this;
   }
 
   send(value: unknown): this {
     this.sendBody = value;
-    this.ended = true;
-    this.writableEnded = true;
-    this.writableFinished = true;
-    this.emit('finish');
-    return this;
-  }
-
-  write(value: string | Buffer | Uint8Array): boolean {
-    this.writes.push(value);
-    return true;
-  }
-
-  end(value?: string | Buffer | Uint8Array): this {
-    if (value !== undefined) {
-      this.writes.push(value);
+    if (!this.writableEnded) {
+      this.end();
     }
-    this.ended = true;
-    this.writableEnded = true;
-    this.writableFinished = true;
-    this.emit('finish');
     return this;
   }
 

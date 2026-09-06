@@ -106,18 +106,13 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
   }
 
   async registerCustomApiRoutes(): Promise<void> {
-    const hasCustomRoutes = await this.buildCustomRouteHandler();
+    // Schema-aware routes are registered natively by the base class through
+    // registerRoute(); the remaining Hono-style routes are bridged below.
+    const customRoutes = await this.registerSchemaApiRoutes();
+    const hasCustomRoutes = await this.buildCustomRouteHandler(customRoutes);
     if (!hasCustomRoutes) {
       return;
     }
-
-    const customRoutes = this.getCustomApiRoutes();
-    if (customRoutes.length === 0) {
-      return;
-    }
-
-    this.customApiRoutes = customRoutes;
-    this.syncCustomRouteAuthConfig(customRoutes);
 
     for (const route of customRoutes) {
       for (const method of toLoopbackMethods(route.method)) {
@@ -331,24 +326,9 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
         return res;
       }
 
-      await this.writeCustomRouteResponse(customResponse, {
-        writeHead: (status, headers) => {
-          res.status(status);
-          for (const [key, value] of Object.entries(headers)) {
-            res.setHeader(key, value);
-          }
-        },
-        write: chunk => {
-          res.write(chunk as string | Buffer | Uint8Array);
-        },
-        end: data => {
-          if (data !== undefined) {
-            res.end(data);
-            return;
-          }
-          res.end();
-        },
-      });
+      // The base class pipes the Response body with stream.pipeline, so it
+      // needs the real Node response rather than a duck-typed wrapper.
+      await this.writeCustomRouteResponse(customResponse, res, abortController.signal);
       this.logRequest(req, res, startedAt);
       return res;
     } catch (error: unknown) {
@@ -365,21 +345,6 @@ export class LoopbackMastraServer extends MastraServer<RestApplication, Request,
       throw new Error(`Route handler is not configured for ${route.method} ${route.path}`);
     }
     return route.handler;
-  }
-
-  private getCustomApiRoutes(): ApiRoute[] {
-    return (this.customApiRoutes ?? this.mastra.getServer()?.apiRoutes ?? []) as ApiRoute[];
-  }
-
-  private syncCustomRouteAuthConfig(routes: ApiRoute[]): void {
-    const config = this.customRouteAuthConfig ?? new Map<string, boolean>();
-    for (const route of routes) {
-      if (route.requiresAuth === undefined) {
-        continue;
-      }
-      config.set(`${route.method}:${joinPath(this.config.prefix, route.path)}`, route.requiresAuth);
-    }
-    this.customRouteAuthConfig = config;
   }
 
   private resolveToolsForRoute(): unknown {
