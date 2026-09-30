@@ -21,8 +21,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22.13 is the floor `engines` declares; 24 is the current LTS.
+        # 22.13 is the floor `engines` declares for consumers; 24 is the current LTS.
         node: ['22.13', '24']
+    env:
+      # The build toolchain (tsdown) itself needs Node >= 22.18, so the floor job
+      # proves the adapter at runtime (typecheck + all tests) and the packaging
+      # steps run on the current LTS only.
+      PACKAGING: ${{ matrix.node == '24' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -40,16 +45,20 @@ jobs:
       # Runs publint and are-the-types-wrong; a broken exports map or
       # unresolvable types fail here rather than after publishing.
       - run: npm run build
+        if: env.PACKAGING == 'true'
 
       - name: Load the build as ESM and CommonJS consumers would
+        if: env.PACKAGING == 'true'
         run: |
           node -e "const m = require('./dist/index.cjs'); if (typeof m.LoopbackMastraServer !== 'function') process.exit(1)"
           node --input-type=module -e "const m = await import('./dist/index.js'); if (typeof m.LoopbackMastraServer !== 'function') process.exit(1)"
 
       - name: Type-check the example against the built package
+        if: env.PACKAGING == 'true'
         run: npm run typecheck -w basic-loopback-app
 
       - name: Assert the tarball holds only what it should
+        if: env.PACKAGING == 'true'
         run: |
           set -euo pipefail
           npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/pack.json"
