@@ -61,18 +61,70 @@ jobs:
     if: needs.check.outputs.publish == 'true'
     uses: ./.github/workflows/ci.yml
 
-  publish:
-    name: Publish to npm
+  # Runs the build toolchain (tsdown, rolldown and their dependencies) with no
+  # privileges at all: no OIDC token, no write token, no environment. A
+  # compromised dev dependency here can at worst corrupt this run's tarball; it
+  # cannot publish, tag, or push anything.
+  build:
+    name: Build tarball
     needs: [check, ci]
     if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    # Restrict this environment to the `main` branch in the repository settings
-    # and scope the npm trusted publisher to it, so neither GitHub nor npm will
-    # accept a publish from any other ref.
+    permissions:
+      contents: read
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No dependency cache: a cache written by an unprivileged PR run must not
+      # feed the artifact that gets published.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+
+      - id: pack
+        name: Pack
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/package"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/package"
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/package/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one tarball, found ${#tarballs[@]}."
+            exit 1
+          fi
+          echo "tarball=$(basename "${tarballs[0]}")" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "${tarballs[0]}" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package
+          path: ${{ runner.temp }}/package/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  # The only job that can publish. It checks out nothing, installs nothing and
+  # runs no project or third-party package code: it verifies the tarball built
+  # above and hands it to npm.
+  publish:
+    name: Publish to npm
+    needs: [check, build]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    # Restricted to the `main` branch (with a required reviewer) in the
+    # repository settings; the npm trusted publisher is scoped to it, so neither
+    # GitHub nor npm accepts a publish from any other ref.
     environment: npm
     permissions:
-      # Creates the v<version> tag and GitHub release after publishing.
-      contents: write
       # Short-lived OIDC token for npm trusted publishing; no NPM_TOKEN is stored.
       id-token: write
     steps:
@@ -83,40 +135,43 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # Node 24 ships npm >= 11.5.1, which trusted publishing requires. No
-      # dependency cache here: a cache written by an unprivileged run must not
-      # reach the one job that can publish.
+      # Node 24 ships npm >= 11.5.1, which trusted publishing requires.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
-      - run: npm ci --ignore-scripts
-      - run: npm run build
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: package
+          path: ${{ runner.temp }}/package
 
-      # Pack once and publish that exact tarball, so what was built and checked
-      # is what ships. Provenance is attached automatically by trusted publishing.
-      - name: Pack
-        run: npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/package"
-
-      - name: Publish
+      - name: Verify and publish the built tarball
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+          EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          tarballs=("$RUNNER_TEMP"/package/*.tgz)
-          if [ "${#tarballs[@]}" -ne 1 ]; then
-            echo "::error::Expected exactly one tarball, found ${#tarballs[@]}."
+          file="$RUNNER_TEMP/package/$TARBALL"
+          actual=$(sha256sum "$file" | cut -d' ' -f1)
+          if [ "$actual" != "$EXPECTED_SHA256" ]; then
+            echo "::error::Tarball digest $actual does not match the build job's $EXPECTED_SHA256."
             exit 1
           fi
-          npm publish "${tarballs[0]}" --access public
+          npm publish "$file" --access public
 
-      - name: Tag and create the GitHub release
-        env:
+  # Tagging needs a write token, so it runs apart from publishing and only after
+  # npm has accepted the release. It runs no project code either.
+  github-release:
+    name: Tag and GitHub release
+    needs: [check, publish]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.check.outputs.version }}
         run: gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes
