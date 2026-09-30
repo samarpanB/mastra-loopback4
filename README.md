@@ -157,15 +157,24 @@ suites.
 
 ## Releasing
 
-1. Bump `version` in `package.json`, update `CHANGELOG.md`, and merge to `main`.
-2. Tag the merge commit `v<version>` and push the tag.
+Releases publish from `main` only.
 
-The release workflow reruns the full CI (conformance included) on the tagged
-commit, refuses tags that do not match `package.json` or are not on `main`,
-and publishes with npm trusted publishing (OIDC, with provenance). One-time
-setup: create an `npm` environment in the GitHub repository settings and
-register this repository and workflow as a trusted publisher for the package
-on npmjs.com.
+1. In a PR, bump `version` in `package.json` and add a `CHANGELOG.md` entry.
+2. Merge it to `main`.
+
+On every push to `main`, the release workflow checks whether that version is
+already on npm. If it is not, it reruns the full CI (conformance included) on
+the merged commit, publishes with npm trusted publishing (OIDC, with
+provenance), and then creates the `v<version>` tag and GitHub release. Merges
+that do not change the version publish nothing.
+
+One-time setup, which is what makes "main only" enforced by GitHub and npm
+rather than by the workflow alone:
+
+- Create an `npm` environment in the repository settings and limit its
+  deployment branches to `main`.
+- Register this repository, `release.yml`, and the `npm` environment as the
+  trusted publisher for the package on npmjs.com.
 
 ## License
 
