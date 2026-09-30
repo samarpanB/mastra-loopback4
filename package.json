@@ -1,6 +1,6 @@
 {
   "name": "@sourceloop/mastra-loopback",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "SourceLoop community LoopBack 4 server adapter for Mastra",
   "type": "module",
   "main": "./dist/index.js",

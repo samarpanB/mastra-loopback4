@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.1.0
+## 1.0.0
 
 First release as an independent community package, repackaged from the
 reviewed LoopBack adapter in Mastra PR #15568.
