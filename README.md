@@ -157,16 +157,17 @@ suites.
 
 ## Releasing
 
-Releases publish from `main` only.
+Releases are manual and publish from `main` only.
 
 1. In a PR, bump `version` in `package.json` and add a `CHANGELOG.md` entry.
 2. Merge it to `main`.
+3. Run the **Release** workflow on `main` from the Actions tab, or with
+   `gh workflow run release.yml --ref main`, and approve the `npm` deployment.
 
-On every push to `main`, the release workflow checks whether that version is
-already on npm. If it is not, it reruns the full CI (conformance included) on
-the merged commit, publishes with npm trusted publishing (OIDC, with
-provenance), and then creates the `v<version>` tag and GitHub release. Merges
-that do not change the version publish nothing.
+The workflow fails if the version is already on npm. Otherwise it reruns the
+full CI (conformance included), builds and packs the tarball in an unprivileged
+job, publishes that exact tarball with npm trusted publishing (OIDC, with
+provenance), and then creates the `v<version>` tag and GitHub release.
 
 One-time setup, which is what makes "main only" enforced by GitHub and npm
 rather than by the workflow alone:
