@@ -1,11 +1,11 @@
 # Architecture
 
 This document describes the architecture currently implemented by the
-`@mastra/loopback` adapter.
+`@sourceloop/mastra-loopback` adapter.
 
-It is intentionally implementation-oriented. The older design document captures
-initial intent; this document captures the architecture that the code follows
-now.
+It is intentionally implementation-oriented: it describes the architecture the
+code follows now. For usage, see [README.md](./README.md) and
+[HOW-TO-USE.md](./HOW-TO-USE.md).
 
 ## Goals
 
@@ -16,7 +16,8 @@ The adapter is built around four goals.
    resolve LoopBack bindings during a request.
 3. Preserve Mastra server semantics such as route auth, request context,
    streaming, MCP, and custom API routes.
-4. Keep framework integration code modular enough to contribute upstream.
+4. Stay conformant with Mastra's server-adapter contract, verified by Mastra's
+   published conformance suites.
 
 ## High-Level Design
 
@@ -29,9 +30,12 @@ The adapter follows a layered design.
    abort lifecycle wiring.
 4. `internal/request-utils.ts` owns request-context creation, bridge creation,
    request normalization, and request-context binding.
-5. `internal/response-writer.ts` owns response transport behavior for JSON,
+5. `internal/request-body.ts` owns body-size limits and multipart parsing.
+6. `internal/response-writer.ts` owns response transport behavior for JSON,
    streams, data streams, and MCP.
-6. `providers/` and `component.ts` expose request-scoped values back into
+7. `internal/logging.ts` provides the LoopBack middleware behind Mastra's
+   `apiReqLogs` request logging.
+8. `providers/` and `component.ts` expose request-scoped values back into
    LoopBack DI.
 
 This splits the adapter into orchestration, request lifecycle, transport, and
@@ -41,34 +45,45 @@ DI-support concerns.
 
 A normal Mastra route request flows through these stages.
 
-1. LoopBack receives the HTTP request through a native `RouteEntry`.
+1. LoopBack receives the HTTP request through a native `RouteEntry`. JSON bodies
+   are parsed by LoopBack; `multipart/form-data` bodies are passed through
+   unparsed (`x-parser: stream`). Mastra routes declared with method `ALL`
+   (MCP transports) are registered once per concrete HTTP method.
 2. `createLoopbackRouteEntry(...)` creates an `AbortController`, binds the
    current OpenAPI operation spec, and watches request/response close events.
 3. `LoopbackMastraServer.registerRoute(...)` delegates request execution to
    `handleRegisteredRouteInvocation(...)`.
-4. The adapter extracts raw params from the LoopBack request using
-   `getParams(...)`.
-5. `LoopbackRequestRuntime` applies Mastra-compatible parse hooks for query,
-   body, and path params.
-6. `createMastraRequestContext(...)` builds a real Mastra `RequestContext` and
+4. The body-size limit (`route.maxBodySize` or `bodyLimitOptions.maxSize`) is
+   enforced; oversized requests get `413` before any parsing or handler work.
+5. The adapter extracts raw params from the LoopBack request using
+   `getParams(...)`, streaming multipart bodies through busboy.
+6. `LoopbackRequestRuntime` applies Mastra-compatible parse hooks for query,
+   body, and path params; Zod failures become Mastra's standard `400` payload.
+7. `createMastraRequestContext(...)` builds a real Mastra `RequestContext` and
    injects the LoopBack bridge under `requestContext.get('loopback')`.
-7. `LoopbackRequestRuntime.checkRouteAuth(...)` runs authorization according to
+8. `LoopbackRequestRuntime.checkRouteAuth(...)` runs authorization according to
    the configured composition mode.
-8. `LoopbackRequestRuntime.resolveAuthContext(...)` maps authenticated state
+9. `LoopbackRequestRuntime.resolveAuthContext(...)` maps authenticated state
    into a normalized adapter auth context.
-9. `bindRequestContextValues(...)` publishes request-scoped values into the
-   current LoopBack request context.
-10. The Mastra route handler executes.
-11. `LoopbackResponseWriter` serializes the handler result back to the
+10. `bindRequestContextValues(...)` publishes request-scoped values into the
+    current LoopBack request context.
+11. Mastra RBAC (when server auth is configured) and FGA checks run, exactly as
+    in the official adapters.
+12. The Mastra route handler executes.
+13. `LoopbackResponseWriter` serializes the handler result back to the
     LoopBack response.
-12. Request logging runs at the end when enabled.
+
+When `apiReqLogs` is enabled, request logging runs as LoopBack middleware
+around the whole application (like `app.use` in the Express adapter) and
+writes through the Mastra logger once each response finishes. It requires
+LoopBack's default `MiddlewareSequence`.
 
 ## Core Runtime Objects
 
 ### `LoopbackMastraServer`
 
 File:
-- [src/loopback-mastra-server.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/loopback-mastra-server.ts)
+- [src/loopback-mastra-server.ts](./src/loopback-mastra-server.ts)
 
 Responsibilities:
 
@@ -86,7 +101,7 @@ owning all transport and auth logic directly.
 ### `LoopbackRequestRuntime`
 
 File:
-- [src/internal/request-runtime.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/request-runtime.ts)
+- [src/internal/request-runtime.ts](./src/internal/request-runtime.ts)
 
 Responsibilities:
 
@@ -103,7 +118,7 @@ runtime semantics.
 ### `LoopbackResponseWriter`
 
 File:
-- [src/internal/response-writer.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/response-writer.ts)
+- [src/internal/response-writer.ts](./src/internal/response-writer.ts)
 
 Responsibilities:
 
@@ -119,7 +134,7 @@ This isolates transport output behavior from the server facade.
 ### `createLoopbackRouteEntry(...)`
 
 File:
-- [src/internal/route-entry-factory.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/route-entry-factory.ts)
+- [src/internal/route-entry-factory.ts](./src/internal/route-entry-factory.ts)
 
 Responsibilities:
 
@@ -133,7 +148,7 @@ This is the transport entry point into the adapter.
 ### Request Utilities
 
 File:
-- [src/internal/request-utils.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/request-utils.ts)
+- [src/internal/request-utils.ts](./src/internal/request-utils.ts)
 
 Responsibilities:
 
@@ -178,16 +193,16 @@ The adapter also publishes request-scoped Mastra values back into LoopBack via
 bindings and providers.
 
 Bindings:
-- [src/bindings.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/bindings.ts)
+- [src/bindings.ts](./src/bindings.ts)
 
 Component:
-- [src/component.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/component.ts)
+- [src/component.ts](./src/component.ts)
 
 Providers:
-- [src/providers/request-context.provider.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/providers/request-context.provider.ts)
-- [src/providers/auth-context.provider.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/providers/auth-context.provider.ts)
-- [src/providers/abort-signal.provider.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/providers/abort-signal.provider.ts)
-- [src/providers/loopback-bridge.provider.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/providers/loopback-bridge.provider.ts)
+- [src/providers/request-context.provider.ts](./src/providers/request-context.provider.ts)
+- [src/providers/auth-context.provider.ts](./src/providers/auth-context.provider.ts)
+- [src/providers/abort-signal.provider.ts](./src/providers/abort-signal.provider.ts)
+- [src/providers/loopback-bridge.provider.ts](./src/providers/loopback-bridge.provider.ts)
 
 Request-scoped values published during route execution:
 
@@ -203,7 +218,7 @@ This allows LoopBack-managed code to resolve Mastra request state when needed.
 Auth is intentionally composable.
 
 Types:
-- [src/types.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/types.ts)
+- [src/types.ts](./src/types.ts)
 
 Config surface:
 
@@ -240,7 +255,8 @@ adapter's normalized `MastraAuthContext`.
 
 ### Why auth is not hard-coded to one LoopBack library
 
-The adapter is upstream-oriented and should not force one authentication stack.
+The adapter is a shared community package and should not force one
+authentication stack on its consumers.
 
 Instead of coupling directly to one LoopBack auth extension, it exposes a
 composable auth hook surface so consumers can:
@@ -250,7 +266,7 @@ composable auth hook surface so consumers can:
 - fully replace adapter-managed authorization with their own stack
 
 The SourceFuse JWT example demonstrates this pattern in:
-- [examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts)
+- [examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts](./examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts)
 
 ## Route Registration Model
 
@@ -299,14 +315,22 @@ Streaming behavior:
 ## OpenAPI Model
 
 Path/OpenAPI helpers live in:
-- [src/internal/path-utils.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/path-utils.ts)
+- [src/internal/path-utils.ts](./src/internal/path-utils.ts)
 
 Current behavior:
 
 - converts Mastra route params to LoopBack route params
 - extracts path param names
-- creates a minimal operation spec when one is not provided
-- preserves explicit custom-route `openapi` metadata when present
+- creates the minimal LoopBack operation spec every Mastra route is registered
+  with: path parameters, plus a permissive `application/json` body and a
+  pass-through (`x-parser: stream`) `multipart/form-data` body
+- never passes a Mastra route's own `openapi` metadata to LoopBack: it can
+  contain Zod schemas, which LoopBack's AJV validation would misread and use to
+  reject valid requests before Mastra validates them
+
+Mastra routes therefore do not appear with their schemas in LoopBack's
+generated OpenAPI spec. Mastra's own OpenAPI document (served under the prefix at `openapiPath`
+when configured) remains the source of truth for those routes.
 
 ## Design Patterns Used
 
@@ -333,7 +357,7 @@ LoopBack providers expose request-scoped Mastra state back into the host app.
 ## Why the File Split Exists
 
 `src/loopback-mastra-server.ts` used to accumulate all concerns in one file.
-The current split exists to keep review and upstream contribution manageable.
+The current split keeps each concern small enough to review and test on its own.
 
 The current responsibility split is:
 
@@ -343,6 +367,8 @@ The current responsibility split is:
 - response transport: `src/internal/response-writer.ts`
 - route-entry creation: `src/internal/route-entry-factory.ts`
 - path/OpenAPI helpers: `src/internal/path-utils.ts`
+- body limits and multipart parsing: `src/internal/request-body.ts`
+- request-logging middleware: `src/internal/logging.ts`
 - provider bindings: `src/bindings.ts`, `src/component.ts`, `src/providers/*`
 
 This keeps transport, auth, DI, and runtime semantics separate.
@@ -358,34 +384,22 @@ The architecture deliberately chooses these tradeoffs.
 
 2. Configurable auth hooks over hard dependency on one auth extension.
    - broader compatibility
-   - easier upstream adoption
+   - works with any LoopBack auth stack
    - slightly more work for consumers to compose framework auth
 
 3. Minimal provider set instead of deep coupling to LoopBack sequence internals.
    - simpler adapter surface
-   - easier contribution path into Mastra
+   - fewer LoopBack internals to track across releases
    - leaves advanced auth/authorization sequencing to host apps
 
 ## Recommended Reading Order
 
 If you are reviewing the codebase, read in this order.
 
-1. [src/loopback-mastra-server.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/loopback-mastra-server.ts)
-2. [src/internal/request-runtime.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/request-runtime.ts)
-3. [src/internal/request-utils.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/request-utils.ts)
-4. [src/internal/response-writer.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/internal/response-writer.ts)
-5. [src/component.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/component.ts)
-6. [src/providers/index.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/src/providers/index.ts)
-7. [examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts)
-
-## Relationship To The Original Design Doc
-
-The original design document is still useful for motivation and PR intent:
-- [mastra-loopback4-adapter-design.md](/Users/samarpan.bhattacharya/projects/mastra-loopback4/docs/mastra-loopback4-adapter-design.md)
-
-But the current implementation has evolved in these ways:
-
-- the architecture is more modular than the original sketch
-- auth customization is broader than the original plan
-- the DI bridge is now a first-class runtime concept
-- transport and request-runtime logic are split into dedicated modules
+1. [src/loopback-mastra-server.ts](./src/loopback-mastra-server.ts)
+2. [src/internal/request-runtime.ts](./src/internal/request-runtime.ts)
+3. [src/internal/request-utils.ts](./src/internal/request-utils.ts)
+4. [src/internal/response-writer.ts](./src/internal/response-writer.ts)
+5. [src/component.ts](./src/component.ts)
+6. [src/providers/index.ts](./src/providers/index.ts)
+7. [examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts](./examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts)

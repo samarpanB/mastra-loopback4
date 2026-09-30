@@ -1,46 +1,61 @@
-import type {HttpLoggingConfig} from '@mastra/core/server';
-import type {Request, Response} from '@loopback/rest';
+import type { Middleware } from '@loopback/rest';
+import type { HttpLoggingConfig } from '@mastra/core/server';
 
-import type {RequestLogPayload} from './types.js';
-import {toHeaderRecord} from './request-utils.js';
+import { toHeaderRecord } from './request-utils.js';
+import type { RequestLogPayload } from './types.js';
 
-export function logLoopbackRequest(input: {
-  req: Request;
-  res: Response;
-  startedAt: number;
-  config?: HttpLoggingConfig;
+type LogLevel = NonNullable<HttpLoggingConfig['level']>;
+type RequestLogger = Record<LogLevel, (message: string, payload: RequestLogPayload) => void>;
+
+/**
+ * LoopBack middleware equivalent of the official adapters' request logger.
+ * Runs for every request on the application, like Express's `app.use`, and
+ * writes through the Mastra logger once the response has finished.
+ */
+export function createHttpLoggingMiddleware(input: {
+  config: HttpLoggingConfig;
   shouldLogRequest: (path: string) => boolean;
-}): void {
-  const {config} = input;
-  if (!config || !input.shouldLogRequest(input.req.path)) {
-    return;
-  }
+  getLogger: () => RequestLogger;
+}): Middleware {
+  return async (ctx, next) => {
+    const { request: req, response: res } = ctx;
+    if (!input.shouldLogRequest(req.path)) {
+      return next();
+    }
 
-  const payload: RequestLogPayload = {
-    method: input.req.method,
-    path: input.req.path,
-    status: input.res.statusCode ?? 200,
-    durationMs: Date.now() - input.startedAt,
+    const startedAt = Date.now();
+    res.once('finish', () => {
+      const { config } = input;
+      const duration = Date.now() - startedAt;
+      const payload: RequestLogPayload = {
+        method: req.method,
+        path: req.path,
+        status: res.statusCode,
+        duration: `${duration}ms`,
+      };
+      if (config.includeQueryParams) {
+        payload.query = req.query as Record<string, unknown>;
+      }
+      if (config.includeHeaders) {
+        payload.headers = redactHeaders(toHeaderRecord(req.headers), config);
+      }
+
+      const level = config.level ?? 'info';
+      input.getLogger()[level](`${payload.method} ${payload.path} ${payload.status} ${payload.duration}`, payload);
+    });
+    return next();
   };
-
-  if (config.includeHeaders) {
-    payload.headers = redactHeaders(toHeaderRecord(input.req.headers), config);
-  }
-  if (config.includeQueryParams) {
-    payload.query = input.req.query as Record<string, unknown>;
-  }
-
-  const level = config.level ?? 'info';
-  const logger: ((message?: unknown, ...optionalParams: unknown[]) => void) | undefined =
-    level === 'debug' ? console.debug : level === 'warn' ? console.warn : console.info;
-  logger?.('Mastra request', payload);
 }
+
+const DEFAULT_REDACT_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-api-key', 'api-key'];
 
 function redactHeaders(
   headers: Record<string, string | string[] | undefined>,
   config: HttpLoggingConfig,
 ): Record<string, string | string[] | undefined> {
-  const redacted = new Set((config.redactHeaders ?? []).map(header => header.toLowerCase()));
+  const redacted = new Set(
+    [...DEFAULT_REDACT_HEADERS, ...(config.redactHeaders ?? [])].map(header => header.toLowerCase()),
+  );
   return Object.fromEntries(
     Object.entries(headers).map(([key, value]) => {
       if (redacted.has(key.toLowerCase())) {

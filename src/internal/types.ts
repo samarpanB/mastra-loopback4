@@ -1,6 +1,6 @@
-import type {ApiRoute} from '@mastra/core/server';
-import type {ServerRoute} from '@mastra/server/server-adapter';
-import type {OperationObject, Request, Response} from '@loopback/rest';
+import type { OperationObject, Request, Response } from '@loopback/rest';
+import type { ApiRoute } from '@mastra/core/server';
+import type { ServerRoute } from '@mastra/server/server-adapter';
 
 export type RegisteredMastraRoute = ServerRoute & {
   handler?: (params: unknown) => unknown | Promise<unknown>;
@@ -30,13 +30,7 @@ export type FetchLikeResponse = {
 
 export type McpHttpResult = {
   server?: {
-    startHTTP?: (args: {
-      url: URL;
-      httpPath: string;
-      req: Request;
-      res: Response;
-      options?: unknown;
-    }) => Promise<void>;
+    startHTTP?: (args: { url: URL; httpPath: string; req: Request; res: Response; options?: unknown }) => Promise<void>;
   };
   httpPath?: string;
   mcpOptions?: unknown;
@@ -62,7 +56,7 @@ export type RequestLogPayload = {
   method: string;
   path: string;
   status: number;
-  durationMs: number;
+  duration: string;
   headers?: Record<string, string | string[] | undefined>;
   query?: Record<string, unknown>;
 };

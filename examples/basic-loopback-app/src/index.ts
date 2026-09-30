@@ -2,7 +2,7 @@ import {Mastra} from '@mastra/core';
 import {registerApiRoute} from '@mastra/core/server';
 import {RestApplication} from '@loopback/rest';
 
-import {LoopbackMastraServer} from '../../../dist/index.js';
+import {LoopbackMastraServer} from '@sourceloop/mastra-loopback';
 
 class CustomerService {
   findById(id: string): {id: string; name: string} {

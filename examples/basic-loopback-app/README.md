@@ -1,33 +1,27 @@
 # basic-loopback-app
 
-Runnable examples showing how `@mastra/loopback` can be used inside a real
+Runnable examples showing how `@sourceloop/mastra-loopback` can be used inside a real
 LoopBack application.
 
-The examples import the built adapter artifact from the repo root, so the
-scripts refresh the root package before starting.
+The example imports the adapter as `@sourceloop/mastra-loopback`, exactly as an
+installed application would. It is an npm workspace of the repository, so the
+package name resolves to this repository's build and every dependency is
+installed once at the root. Its run scripts build the package first.
 
 ## Install
 
+From the repository root:
+
 ```bash
-npm install
+npm install --ignore-scripts
 ```
 
 ## Run
 
 ```bash
-npm run dev
-```
-
-## Run Agent Example
-
-```bash
-npm run dev:agent-example
-```
-
-## Run SourceFuse Auth Example
-
-```bash
-npm run dev:sourcefuse-auth-example
+npm run dev -w basic-loopback-app
+npm run dev:agent-example -w basic-loopback-app
+npm run dev:sourcefuse-auth-example -w basic-loopback-app
 ```
 
 ## Notes

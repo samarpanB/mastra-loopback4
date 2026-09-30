@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # The release workflow runs this exact workflow on the commit it is about to publish.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.13 is the floor `engines` declares for consumers; 24 is the current LTS.
+        node: ['22.13', '24']
+    env:
+      # The build toolchain (tsdown) itself needs Node >= 22.18, so the floor job
+      # proves the adapter at runtime (typecheck + all tests) and the packaging
+      # steps run on the current LTS only.
+      PACKAGING: ${{ matrix.node == '24' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+      # `npm test` includes Mastra's published conformance suites
+      # (@mastra/server-adapters-test-suite), so route, MCP, multipart,
+      # body-limit and logging parity gate every change.
+      - run: npm run typecheck
+      - run: npm test
+
+      # Runs publint and are-the-types-wrong; a broken exports map or
+      # unresolvable types fail here rather than after publishing.
+      - run: npm run build
+        if: env.PACKAGING == 'true'
+
+      - name: Load the build as ESM and CommonJS consumers would
+        if: env.PACKAGING == 'true'
+        run: |
+          node -e "const m = require('./dist/index.cjs'); if (typeof m.LoopbackMastraServer !== 'function') process.exit(1)"
+          node --input-type=module -e "const m = await import('./dist/index.js'); if (typeof m.LoopbackMastraServer !== 'function') process.exit(1)"
+
+      - name: Type-check the example against the built package
+        if: env.PACKAGING == 'true'
+        run: npm run typecheck -w basic-loopback-app
+
+      - name: Assert the tarball holds only what it should
+        if: env.PACKAGING == 'true'
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/pack.json"
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const [pkg] = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const files = pkg.files.map(f => f.path);
+            const fail = message => { console.log(`::error::${message}`); process.exit(1); };
+            if (files.length < 5) fail(`tarball lists ${files.length} files, which cannot be right`);
+            console.log(files.join("\n"));
+            for (const forbidden of ["src/", "docs/", "examples/", ".github/"]) {
+              const leaked = files.filter(f => f.startsWith(forbidden));
+              if (leaked.length > 0) fail(`${forbidden} must never be published: ${leaked.join(", ")}`);
+            }
+            for (const required of ["dist/index.js", "dist/index.cjs", "dist/index.d.ts", "dist/index.d.cts", "LICENSE", "README.md"]) {
+              if (!files.includes(required)) fail(`${required} is missing from the tarball`);
+            }
+          ' "$RUNNER_TEMP/pack.json"
