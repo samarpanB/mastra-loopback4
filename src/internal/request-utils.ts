@@ -1,9 +1,9 @@
-import {RequestContext} from '@mastra/core/request-context';
-import type {Context} from '@loopback/core';
-import type {Request, Response, RestApplication} from '@loopback/rest';
+import type { Context } from '@loopback/core';
+import type { Request, Response, RestApplication } from '@loopback/rest';
+import { RequestContext } from '@mastra/core/request-context';
 
-import {MastraLoopbackBindings} from '../bindings.js';
-import type {LoopbackMastraBridge, MastraAuthContext} from '../types.js';
+import { MastraLoopbackBindings } from '../bindings.js';
+import type { LoopbackMastraBridge, MastraAuthContext } from '../types.js';
 
 export type MergeRequestContextFn = (input: {
   paramsRequestContext?: Record<string, unknown>;
@@ -70,7 +70,7 @@ export function extractAuthContext(requestContext: unknown): MastraAuthContext |
 
   const auth = candidate as Record<string, unknown>;
   const scopes = Array.isArray(auth.scopes)
-    ? auth.scopes.filter(scope => typeof scope === 'string')
+    ? auth.scopes.filter((scope): scope is string => typeof scope === 'string')
     : undefined;
 
   return {
@@ -139,7 +139,7 @@ export function getHeaderValueOptional(req: Request, key: string): string | unde
   const normalizedKey = key.toLowerCase();
   const value = req.headers[normalizedKey];
   if (Array.isArray(value)) {
-    return value.length > 0 ? value[0] ?? undefined : undefined;
+    return value.length > 0 ? (value[0] ?? undefined) : undefined;
   }
   if (typeof value === 'string') {
     return value;
@@ -168,8 +168,7 @@ export function getQueryValueOptional(req: Request, key: string): string | undef
 
 export function buildRequestUrl(req: Request): URL {
   const protocol = getHeaderValue(req, 'x-forwarded-proto') ?? (req.secure ? 'https' : 'http');
-  const host =
-    getHeaderValue(req, 'x-forwarded-host') ?? getHeaderValue(req, 'host') ?? 'localhost';
+  const host = getHeaderValue(req, 'x-forwarded-host') ?? getHeaderValue(req, 'host') ?? 'localhost';
   const path = req.originalUrl || req.url || req.path || '/';
   return new URL(path, `${protocol}://${host}`);
 }
@@ -208,26 +207,26 @@ export function toWebRequest(req: Request): globalThis.Request {
   }
 
   const method = req.method.toUpperCase();
-  const init: RequestInit = {method, headers};
+  const init: RequestInit = { method, headers };
   if (method !== 'GET' && method !== 'HEAD' && req.body !== undefined) {
-    init.body = toRequestBody(req.body);
-    if (
+    const willJsonStringify =
       typeof req.body === 'object' &&
       req.body !== null &&
-      !headers.has('content-type') &&
       !Buffer.isBuffer(req.body) &&
-      !(req.body instanceof Uint8Array)
-    ) {
+      !(req.body instanceof Uint8Array) &&
+      !(req.body instanceof URLSearchParams) &&
+      !(req.body instanceof Blob) &&
+      !(req.body instanceof FormData);
+    if (willJsonStringify) {
       headers.set('content-type', 'application/json');
     }
+    init.body = toRequestBody(req.body);
   }
 
   return new Request(url, init);
 }
 
-export function toRequestBody(
-  body: unknown,
-): string | Buffer | Uint8Array | URLSearchParams | Blob | FormData {
+export function toRequestBody(body: unknown): string | Buffer | Uint8Array | URLSearchParams | Blob | FormData {
   if (typeof body === 'string') {
     return body;
   }

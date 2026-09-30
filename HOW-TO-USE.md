@@ -1,4 +1,4 @@
-# How To Use `@mastra/loopback`
+# How To Use `@sourceloop/mastra-loopback`
 
 This adapter lets Mastra run inside an existing LoopBack 4 application while
 preserving LoopBack's request-scoped DI model.
@@ -100,7 +100,7 @@ Example:
 import {Mastra} from '@mastra/core';
 import {registerApiRoute} from '@mastra/core/server';
 import {RestApplication} from '@loopback/rest';
-import {LoopbackMastraServer} from '@mastra/loopback';
+import {LoopbackMastraServer} from '@sourceloop/mastra-loopback';
 
 class CustomerService {
   async getCustomerSummary(id: string) {
@@ -258,7 +258,7 @@ source of truth and call them from the adapter auth hooks.
 
 Concrete example:
 
-- [sourcefuse-auth-jwt-example.ts](/Users/samarpan.bhattacharya/projects/mastra-loopback4/examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts)
+- [sourcefuse-auth-jwt-example.ts](./examples/basic-loopback-app/src/sourcefuse-auth-jwt-example.ts)
 
 That example shows this pattern:
 
@@ -296,7 +296,7 @@ Example:
 import {RestApplication} from '@loopback/rest';
 import {Mastra} from '@mastra/core';
 import {registerApiRoute} from '@mastra/core/server';
-import {LoopbackMastraServer} from '@mastra/loopback';
+import {LoopbackMastraServer} from '@sourceloop/mastra-loopback';
 
 const app = new RestApplication();
 
@@ -455,7 +455,7 @@ This project now includes a concrete example that shows the full chain:
 
 File:
 
-[`examples/basic-loopback-app/src/repository-tool-agent-route-example.ts`](/Users/samarpan.bhattacharya/projects/mastra-loopback4/examples/basic-loopback-app/src/repository-tool-agent-route-example.ts)
+[`examples/basic-loopback-app/src/repository-tool-agent-route-example.ts`](./examples/basic-loopback-app/src/repository-tool-agent-route-example.ts)
 
 What it demonstrates:
 

@@ -1,0 +1,80 @@
+name: Release
+
+# Publishes from a `v*` tag. Never runs on pull_request: this is the only
+# workflow with publish rights.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # The full CI workflow — typecheck, unit/integration, all Mastra conformance
+  # suites on both Node versions, build checks, tarball assertions — must pass
+  # on the exact commit being published.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish to npm
+    needs: ci
+    runs-on: ubuntu-latest
+    # Create this environment in the repository settings (optionally with a
+    # required reviewer) and scope the npm trusted publisher to it.
+    environment: npm
+    permissions:
+      contents: read
+      # Short-lived OIDC token for npm trusted publishing; no NPM_TOKEN is stored.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse anything but a version tag on main
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF" != "refs/tags/v$version" ]; then
+            echo "::error::Publishing needs the tag v$version (package.json's version); this run is on $GITHUB_REF."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::v$version points at a commit that is not on main."
+            exit 1
+          fi
+
+      # Node 24 ships npm >= 11.5.1, which trusted publishing requires. No
+      # dependency cache here: a cache written by an unprivileged run must not
+      # reach the one job that can publish.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+
+      # Pack once and publish that exact tarball, so what was built and checked
+      # is what ships. Provenance is attached automatically by trusted publishing.
+      - name: Pack
+        run: npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/package"
+
+      - name: Publish
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/package/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one tarball, found ${#tarballs[@]}."
+            exit 1
+          fi
+          npm publish "${tarballs[0]}" --access public

@@ -1,7 +1,9 @@
-import {EventEmitter} from 'node:events';
+import { EventEmitter } from 'node:events';
+import { Writable } from 'node:stream';
 
-import {Context} from '@loopback/core';
-import {RestBindings, RestApplication, type RouteEntry} from '@loopback/rest';
+import { Context } from '@loopback/core';
+import { RestBindings, RestApplication } from '@loopback/rest';
+import type { RouteEntry } from '@loopback/rest';
 
 export class FakeRequest extends EventEmitter {
   method = 'GET';
@@ -13,6 +15,7 @@ export class FakeRequest extends EventEmitter {
   query: Record<string, unknown> = {};
   params: Record<string, unknown> = {};
   body: unknown = undefined;
+  readableEnded = true;
 
   constructor(overrides?: Partial<FakeRequest>) {
     super();
@@ -20,7 +23,7 @@ export class FakeRequest extends EventEmitter {
   }
 }
 
-export class FakeResponse extends EventEmitter {
+export class FakeResponse extends Writable {
   statusCode = 200;
   readonly headers = new Map<string, string | string[]>();
   readonly writes: Array<string | Buffer | Uint8Array> = [];
@@ -28,6 +31,13 @@ export class FakeResponse extends EventEmitter {
   sendBody: unknown;
   ended = false;
   flushed = false;
+
+  constructor() {
+    super();
+    this.on('finish', () => {
+      this.ended = true;
+    });
+  }
 
   status(code: number): this {
     this.statusCode = code;
@@ -43,33 +53,43 @@ export class FakeResponse extends EventEmitter {
     return this.headers.get(key.toLowerCase());
   }
 
+  removeHeader(key: string): void {
+    this.headers.delete(key.toLowerCase());
+  }
+
+  writeHead(status: number, headers: Record<string, string | string[]>): this {
+    this.status(status);
+    for (const [key, value] of Object.entries(headers)) {
+      this.setHeader(key, value);
+    }
+    return this;
+  }
+
   json(value: unknown): this {
     this.jsonBody = value;
     this.setHeader('content-type', 'application/json');
-    this.ended = true;
-    this.emit('finish');
+    this.end();
     return this;
   }
 
   send(value: unknown): this {
     this.sendBody = value;
-    this.ended = true;
-    this.emit('finish');
+    this.end();
     return this;
   }
 
-  write(value: string | Buffer | Uint8Array): boolean {
+  _write(
+    value: string | Buffer | Uint8Array,
+    _encoding: BufferEncoding,
+    callback: (error?: Error | null) => void,
+  ): void {
     this.writes.push(value);
-    return true;
+    callback();
   }
 
-  end(value?: string | Buffer | Uint8Array): this {
-    if (value !== undefined) {
-      this.writes.push(value);
-    }
+  _final(callback: (error?: Error | null) => void): void {
     this.ended = true;
-    this.emit('finish');
-    return this;
+    callback();
   }
 
   flushHeaders(): void {
@@ -95,15 +115,23 @@ export function getWrittenText(response: FakeResponse): string {
     .join('');
 }
 
-export function createAppWithCapture(): {app: RestApplication; routes: RouteEntry[]} {
+export function createAppWithCapture(): { app: RestApplication; routes: RouteEntry[] } {
   const app = new RestApplication();
   const routes: RouteEntry[] = [];
-  const originalRoute = app.route.bind(app);
-  app.route = ((route: RouteEntry) => {
-    routes.push(route);
-    return originalRoute(route);
+  const originalRoute = app.route.bind(app) as (...args: unknown[]) => unknown;
+  app.route = ((...args: unknown[]) => {
+    const route = args[0];
+    if (args.length === 1 && isRouteEntry(route)) {
+      routes.push(route);
+      return originalRoute(route);
+    }
+    return originalRoute(...args);
   }) as typeof app.route;
-  return {app, routes};
+  return { app, routes };
+}
+
+function isRouteEntry(value: unknown): value is RouteEntry {
+  return typeof value === 'object' && value !== null && 'verb' in value && 'path' in value && 'invokeHandler' in value;
 }
 
 export async function invokeRoute(

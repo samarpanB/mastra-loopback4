@@ -12,7 +12,7 @@ import {
 import {RestApplication} from '@loopback/rest';
 import {z} from 'zod';
 
-import {LoopbackMastraServer} from '../../../dist/index.js';
+import {LoopbackMastraServer} from '@sourceloop/mastra-loopback';
 
 @model()
 class Customer extends Entity {

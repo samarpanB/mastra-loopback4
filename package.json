@@ -1,64 +1,86 @@
 {
-  "name": "@mastra/loopback",
+  "name": "@sourceloop/mastra-loopback",
   "version": "0.1.0",
-  "description": "LoopBack 4 server adapter for Mastra",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/mastra-ai/mastra.git",
-    "directory": "server-adapters/loopback"
-  },
-  "bugs": {
-    "url": "https://github.com/mastra-ai/mastra/issues"
-  },
-  "homepage": "https://mastra.ai/docs/server/custom-adapters",
-  "keywords": [
-    "mastra",
-    "loopback",
-    "loopback4",
-    "server-adapter",
-    "ai"
-  ],
-  "sideEffects": false,
+  "description": "SourceLoop community LoopBack 4 server adapter for Mastra",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
+  "workspaces": [
+    "examples/*"
+  ],
   "scripts": {
-    "clean": "rm -rf dist",
-    "build": "npm run clean && tsc -p tsconfig.json",
+    "build": "tsdown --silent --config tsdown.config.ts",
+    "build:watch": "npm run build -- --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run src/__tests__/unit",
+    "test:unit": "vitest run src/loopback-mastra-server.test.ts",
     "test:integration": "vitest run src/__tests__/integration",
-    "verify": "npm run typecheck && npm run test"
+    "test:conformance": "vitest run src/__tests__/conformance",
+    "verify": "npm run typecheck && npm test && npm run build",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@fastify/busboy": "^3.2.2",
+    "@mastra/server": "^1.72.0"
   },
   "peerDependencies": {
-    "@loopback/core": "^7.0.10",
-    "@loopback/rest": "^15.0.11",
-    "@mastra/core": "^1.22.0",
-    "@mastra/server": "^1.22.0"
+    "@loopback/core": "^7.0.15",
+    "@loopback/rest": "^15.0.16",
+    "@mastra/core": ">=1.72.0 <2.0.0-0"
   },
   "devDependencies": {
-    "@loopback/core": "^7.0.10",
-    "@loopback/rest": "^15.0.11",
-    "@mastra/core": "^1.22.0",
-    "@mastra/server": "^1.22.0",
-    "@types/node": "^25.5.2",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "@arethetypeswrong/core": "^0.18.5",
+    "@loopback/core": "^7.0.15",
+    "@loopback/rest": "^15.0.16",
+    "@mastra/core": "^1.72.0",
+    "@mastra/mcp": "^2.0.0",
+    "@mastra/server-adapters-test-suite": "^0.1.1",
+    "@types/node": "^22.20.4",
+    "publint": "^0.3.24",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
+  },
+  "keywords": [
+    "mastra",
+    "loopback",
+    "loopback4",
+    "server-adapter",
+    "mcp",
+    "ai-agents"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samarpanB/mastra-loopback4.git"
+  },
+  "bugs": {
+    "url": "https://github.com/samarpanB/mastra-loopback4/issues"
+  },
+  "homepage": "https://github.com/samarpanB/mastra-loopback4#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }

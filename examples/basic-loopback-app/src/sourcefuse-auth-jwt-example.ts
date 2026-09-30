@@ -17,7 +17,7 @@ import {
   type IAuthUserWithPermissions,
 } from 'loopback4-authorization';
 
-import {LoopbackMastraServer, type LoopbackMastraBridge} from '../../../dist/index.js';
+import {LoopbackMastraServer, type LoopbackMastraBridge} from '@sourceloop/mastra-loopback';
 
 type DemoUser = IAuthUserWithPermissions & {
   tenantId: string;
@@ -72,7 +72,7 @@ class JwtBearerVerifyProvider
         const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
         return payload.user;
       } catch {
-        return undefined;
+        return null;
       }
     };
   }
@@ -103,7 +103,7 @@ function issueToken(user: DemoUser): string {
     JWT_SECRET,
     {
       expiresIn: '1h',
-      audience: 'mastra-loopback4-demo',
+      audience: 'sourceloop-mastra-loopback-demo',
       issuer: 'sourcefuse-auth-example',
     },
   );

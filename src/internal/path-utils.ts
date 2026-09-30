@@ -1,6 +1,6 @@
-import type {OperationObject} from '@loopback/rest';
+import type { OperationObject } from '@loopback/rest';
 
-import type {LoopbackApiRouteMethod} from './types.js';
+import type { LoopbackApiRouteMethod } from './types.js';
 
 export function extractPathParamNames(path: string): string[] {
   const names = new Set<string>();
@@ -27,7 +27,7 @@ export function joinPath(prefix: string | undefined, path: string): string {
 
 export function toLoopbackMethods(method: LoopbackApiRouteMethod): string[] {
   if (method === 'ALL') {
-    return ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+    return ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
   }
   return [method];
 }
@@ -46,7 +46,7 @@ export function createOperationSpec(pathParamNames: string[]): OperationObject {
       name,
       in: 'path',
       required: true,
-      schema: {type: 'string'},
+      schema: { type: 'string' },
     }));
   }
 
@@ -54,10 +54,15 @@ export function createOperationSpec(pathParamNames: string[]): OperationObject {
     required: false,
     content: {
       'application/json': {
-        schema: {
-          type: 'object',
-          additionalProperties: true,
-        },
+        // Mastra owns route validation. Keep LoopBack's parser permissive so
+        // scalar, array, object, null, and empty-body inputs reach Mastra.
+        schema: {},
+      },
+      // Hand multipart bodies over unparsed; the adapter streams them through
+      // busboy so file uploads become Buffers and size limits apply per file.
+      'multipart/form-data': {
+        'x-parser': 'stream',
+        schema: {},
       },
     },
   };

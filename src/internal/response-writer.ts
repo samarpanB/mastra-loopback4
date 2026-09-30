@@ -1,8 +1,8 @@
-import type {ServerRoute} from '@mastra/server/server-adapter';
-import type {Request, Response} from '@loopback/rest';
+import type { Request, Response } from '@loopback/rest';
+import type { ServerRoute } from '@mastra/server/server-adapter';
 
-import {joinPath} from './path-utils.js';
-import {buildRequestUrl} from './request-utils.js';
+import { joinPath } from './path-utils.js';
+import { buildRequestUrl } from './request-utils.js';
 import type {
   FetchLikeResponse,
   McpHttpResult,
@@ -19,20 +19,23 @@ export interface LoopbackResponseWriterOptions {
 export class LoopbackResponseWriter {
   constructor(private readonly options: LoopbackResponseWriterOptions) {}
 
-  async sendResponse(
-    route: ServerRoute,
-    res: Response,
-    result: unknown,
-    request?: Request,
-  ): Promise<void> {
+  async sendResponse(route: ServerRoute, res: Response, result: unknown, request?: Request): Promise<void> {
     const responseType = getResponseType(route);
 
     if (responseType === 'stream') {
+      if (result === undefined) {
+        res.status(204).end();
+        return;
+      }
       await this.stream(route, res, result);
       return;
     }
 
     if (responseType === 'datastream-response') {
+      if (result === undefined) {
+        res.status(204).end();
+        return;
+      }
       if (isFetchLikeResponse(result)) {
         await writeFetchLikeResponse(res, result);
         return;
@@ -78,6 +81,11 @@ export class LoopbackResponseWriter {
   }
 
   async stream(route: ServerRoute, res: Response, result: unknown): Promise<void> {
+    if (result === undefined) {
+      res.status(204).end();
+      return;
+    }
+
     const responseType = getResponseType(route);
     const streamRoute = route as RegisteredMastraRoute;
     const sseMode = streamRoute.streamFormat === 'sse' || responseType === 'mcp-sse';
@@ -88,49 +96,49 @@ export class LoopbackResponseWriter {
       res.setHeader('Connection', 'keep-alive');
     } else {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.setHeader('Transfer-Encoding', 'chunked');
     }
     res.flushHeaders?.();
 
-    const iterable = toAsyncIterable(result);
-    if (!iterable) {
-      writeStreamChunk(res, result, sseMode);
+    try {
+      const iterable = toAsyncIterable(result);
+      if (!iterable) {
+        writeStreamChunk(res, result, sseMode);
+        if (sseMode) {
+          res.write('event: done\ndata: [DONE]\n\n');
+        }
+        return;
+      }
+
+      for await (const originalChunk of iterable) {
+        const chunk = await this.options.applyStreamRedaction(originalChunk);
+        writeStreamChunk(res, chunk, sseMode);
+      }
+
       if (sseMode) {
         res.write('event: done\ndata: [DONE]\n\n');
       }
-      res.end();
-      return;
+    } finally {
+      if (!res.writableEnded) {
+        res.end();
+      }
     }
-
-    for await (const originalChunk of iterable) {
-      const chunk = await this.options.applyStreamRedaction(originalChunk);
-      writeStreamChunk(res, chunk, sseMode);
-    }
-
-    if (sseMode) {
-      res.write('event: done\ndata: [DONE]\n\n');
-    }
-    res.end();
   }
 
   sendErrorResponse(res: Response, error: unknown): void {
     const fallbackMessage = 'Internal Server Error';
     if (!error || typeof error !== 'object') {
-      res.status(500).json({error: fallbackMessage});
+      res.status(500).json({ error: fallbackMessage });
       return;
     }
 
-    const knownError = error as {status?: number; statusCode?: number; message?: string};
+    const knownError = error as { status?: number; statusCode?: number; message?: string; expose?: boolean };
     const status = knownError.statusCode ?? knownError.status ?? 500;
-    const message = knownError.message ?? fallbackMessage;
-    res.status(status).json({error: message});
+    const safeToExpose = knownError.expose === true || (status >= 400 && status < 500);
+    const message = safeToExpose && knownError.message ? knownError.message : fallbackMessage;
+    res.status(status).json({ error: message });
   }
 
-  private async handleMcpHttpResponse(
-    result: unknown,
-    res: Response,
-    request?: Request,
-  ): Promise<void> {
+  private async handleMcpHttpResponse(result: unknown, res: Response, request?: Request): Promise<void> {
     if (!request) {
       throw new Error('Request is required for mcp-http response handling.');
     }
@@ -149,11 +157,7 @@ export class LoopbackResponseWriter {
     });
   }
 
-  private async handleMcpSseResponse(
-    result: unknown,
-    res: Response,
-    request?: Request,
-  ): Promise<void> {
+  private async handleMcpSseResponse(result: unknown, res: Response, request?: Request): Promise<void> {
     if (!request) {
       throw new Error('Request is required for mcp-sse response handling.');
     }
@@ -184,8 +188,18 @@ async function writeFetchLikeResponse(res: Response, response: FetchLikeResponse
   applyHeaders(res, response.headers);
 
   if (response.body) {
+    // A Fetch Response can carry a content-length header even though its body
+    // is exposed as a stream. Node will add transfer-encoding when we pipe
+    // chunks to the LoopBack response, and HTTP/1.1 forbids sending both.
+    res.removeHeader('content-length');
     for await (const chunk of webStreamToAsyncIterable(response.body)) {
-      res.write(chunk);
+      if (typeof chunk === 'string' || Buffer.isBuffer(chunk)) {
+        res.write(chunk);
+      } else if (isBinaryBody(chunk)) {
+        res.write(toBuffer(chunk));
+      } else {
+        res.write(JSON.stringify(chunk));
+      }
     }
     res.end();
     return;
@@ -221,9 +235,7 @@ function applyHeaders(res: Response, headers: unknown): void {
     if (Array.isArray(value)) {
       res.setHeader(
         key,
-        value
-          .filter(entry => entry !== undefined && entry !== null)
-          .map(entry => String(entry)),
+        value.filter(entry => entry !== undefined && entry !== null).map(entry => String(entry)),
       );
     } else {
       res.setHeader(key, String(value));
@@ -237,9 +249,9 @@ function writeBodyValue(res: Response, body: unknown): void {
     return;
   }
 
-  if (Buffer.isBuffer(body)) {
+  if (isBinaryBody(body)) {
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.end(body);
+    res.end(toBuffer(body));
     return;
   }
 
@@ -256,7 +268,11 @@ function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
     return false;
   }
   const candidate = value as Record<string, unknown>;
-  return 'status' in candidate || 'statusCode' in candidate || 'body' in candidate;
+  return (
+    typeof candidate.status === 'number' ||
+    typeof candidate.statusCode === 'number' ||
+    ('body' in candidate && 'headers' in candidate)
+  );
 }
 
 function isFetchLikeResponse(value: unknown): value is FetchLikeResponse {
@@ -275,6 +291,10 @@ function isFetchLikeResponse(value: unknown): value is FetchLikeResponse {
 function toAsyncIterable(value: unknown): AsyncIterable<unknown> | null {
   if (!value) {
     return null;
+  }
+
+  if (isBinaryBody(value)) {
+    return fromIterable([value]);
   }
 
   if (isAsyncIterable(value)) {
@@ -307,7 +327,7 @@ function toAsyncIterable(value: unknown): AsyncIterable<unknown> | null {
   return null;
 }
 
-async function *fromIterable(value: Iterable<unknown>): AsyncIterable<unknown> {
+async function* fromIterable(value: Iterable<unknown>): AsyncIterable<unknown> {
   for (const item of value) {
     yield item;
   }
@@ -318,7 +338,7 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
     !!value &&
     typeof value === 'object' &&
     Symbol.asyncIterator in value &&
-    typeof (value as {[Symbol.asyncIterator]?: unknown})[Symbol.asyncIterator] === 'function'
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
   );
 }
 
@@ -327,8 +347,22 @@ function isSyncIterable(value: unknown): value is Iterable<unknown> {
     !!value &&
     typeof value === 'object' &&
     Symbol.iterator in value &&
-    typeof (value as {[Symbol.iterator]?: unknown})[Symbol.iterator] === 'function'
+    typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function'
   );
+}
+
+function isBinaryBody(value: unknown): value is ArrayBuffer | ArrayBufferView {
+  return value instanceof ArrayBuffer || ArrayBuffer.isView(value);
+}
+
+function toBuffer(value: ArrayBuffer | ArrayBufferView): Buffer {
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+  if (value instanceof ArrayBuffer) {
+    return Buffer.from(value);
+  }
+  return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
 }
 
 function isWebReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
@@ -336,15 +370,15 @@ function isWebReadableStream(value: unknown): value is ReadableStream<Uint8Array
     !!value &&
     typeof value === 'object' &&
     'getReader' in value &&
-    typeof (value as {getReader?: unknown}).getReader === 'function'
+    typeof (value as { getReader?: unknown }).getReader === 'function'
   );
 }
 
-async function *webStreamToAsyncIterable(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
+async function* webStreamToAsyncIterable(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
   const reader = stream.getReader();
   try {
     while (true) {
-      const {done, value} = await reader.read();
+      const { done, value } = await reader.read();
       if (done) {
         return;
       }
@@ -368,8 +402,8 @@ function writeStreamChunk(res: Response, chunk: unknown, sseMode: boolean): void
     return;
   }
 
-  if (chunk instanceof Uint8Array) {
-    res.write(Buffer.from(chunk));
+  if (isBinaryBody(chunk)) {
+    res.write(toBuffer(chunk));
     return;
   }
 
@@ -385,18 +419,13 @@ function toSseChunk(chunk: unknown): string {
     return 'data: null\n\n';
   }
 
-  if (Buffer.isBuffer(chunk)) {
-    return toSseChunk(chunk.toString('utf8'));
-  }
-
-  if (chunk instanceof Uint8Array) {
-    return toSseChunk(Buffer.from(chunk).toString('utf8'));
+  if (isBinaryBody(chunk)) {
+    return toSseChunk(toBuffer(chunk).toString('utf8'));
   }
 
   if (typeof chunk === 'string') {
     const trimmed = chunk.trimStart();
-    const alreadyFramed =
-      trimmed.startsWith('data:') || trimmed.startsWith('event:') || trimmed.startsWith(':');
+    const alreadyFramed = trimmed.startsWith('data:') || trimmed.startsWith('event:') || trimmed.startsWith(':');
     if (alreadyFramed) {
       return chunk.endsWith('\n\n') ? chunk : `${chunk}\n\n`;
     }
